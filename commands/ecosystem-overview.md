@@ -292,94 +292,186 @@ Structure:
 > **Repos analysed:** repo-a, repo-b, repo-c
 > **Repos excluded (access failed):** repo-d (reason)
 >
-> Individual repo docs: [repo-a](../repo-a/docs/codebase-overview.md) · [repo-b](...)
+> Diagrams: [ecosystem-diagram.md](ecosystem-diagram.md) · [ecosystem.drawio](ecosystem.drawio)
+> Individual repo docs: [repo-a overview](../repo-a/docs/codebase-overview.md) · [repo-b overview](...)
 
 ---
 
 ## 1. Ecosystem at a Glance
-Table: name | type | language | deployment | owns | exposes | depends on
+
+Concise table — one row per repo. Keep cells short; detail goes in Section 9.
+
+| Service | Language | Deploy | Owns (data) | Exposes | Key Dependencies |
+|---------|----------|--------|-------------|---------|-----------------|
+| repo-a  | Go       | ECS    | DynamoDB X  | REST    | repo-b (gRPC)   |
 
 ## 2. Dependency Graph (ASCII)
-Directed graph showing all repos and their connections.
-Annotate each edge with mechanism (REST/Kafka/SQS/etc.) and SYNC/ASYNC.
+
+Directed graph showing all service-to-service connections (service level, not component level).
+One line per dependency. Format:
+
+  repo-a ──REST SYNC──→ repo-b
+  repo-a ──Kafka ASYNC──→ [topic: deliveries] ──→ repo-c
+  [EXTERNAL: RS Accounts] ──Kafka──→ repo-c
+
+Mark SYNC vs ASYNC on every edge. Group by protocol (REST/gRPC, Kafka, SQS, DynamoDB stream).
 Mark EXTERNAL nodes for out-of-scope dependencies.
 
 ## 3. Shared Infrastructure
-Any databases, queues, or topics accessed by more than one repo.
-Who is the owner? Who are the readers? Is there write contention?
+
+Only include infrastructure accessed by MORE THAN ONE repo. Format as a table:
+
+| Resource | Type | Owner | Readers/Writers | Risk |
+|----------|------|-------|-----------------|------|
+| Kafka (MSK) | Message bus | Platform | all repos | — |
+| Receipt Store | gRPC service | External | repo-b, repo-c | SPOF |
 
 ## 4. API & Event Contract Map
-For each cross-repo interface:
-  - Producer repo → Consumer repo
-  - Contract: endpoint/topic/queue + schema summary
-  - Versioning: is there a version in the path/header/schema?
+
+For each cross-repo interface, one row in a table:
+
+| Producer | Consumer | Contract | Mechanism | Sync? | Notes |
+|----------|----------|----------|-----------|-------|-------|
+| repo-a | repo-b | POST /v1/quotes | REST | SYNC | versioned in path |
+| repo-a | repo-c | roogo_deliveries topic | Kafka | ASYNC | protobuf schema |
+
+Do NOT repeat information that is already in Section 2 or Section 9. This section is purely the contract table.
 
 ## 5. Cross-Repo E2E Flows
-One sub-section per significant flow.
-Include async continuations clearly marked.
-Trace to file-level code paths where possible.
+
+One sub-section per significant flow. A flow qualifies if it crosses ≥ 2 repos.
+Include async continuations clearly marked with "(async, continues after response)".
+Trace to file/function level where possible.
+
+Do not repeat dependency information from Section 2 here — focus on the narrative sequence.
 
 ## 6. Impact Analysis
+
 ### 6a. Blast Radius Table
-If repo X goes down → what breaks, severity (P0/P1/P2/P3), why.
+
+| If this goes down | Immediate impact | Cascades to | Severity | Why |
+|-------------------|-----------------|-------------|----------|-----|
+| repo-b | repo-a /quotes fails | — | P0 | Sync dep, no fallback |
 
 ### 6b. Single Points of Failure
-Any repo that:
-- Has no redundancy and is on the SYNC critical path of multiple others
-- Has no circuit breaker / fallback visible in consuming code
-- Owns a store that others write to with no eventual-consistency buffer
+
+Bullet list. Only include repos/services that are:
+- On the SYNC critical path of 2+ other repos with no circuit breaker, OR
+- Owned data store written to by 2+ repos with no coordination
 
 ### 6c. Cascade Failure Scenarios
-2-3 specific "what if…" scenarios tracing how an outage propagates.
+
+2-3 specific "what if…" scenarios. Keep each to 3-5 sentences.
 
 ## 7. Data Ownership Map
-Who owns what data? Who reads whose data?
-Flag any cases where two repos write to the same store (write contention risk).
+
+One table per service that owns data stores. List who else reads/writes each store.
+Flag write contention (two services writing the same store) prominently.
 
 ## 8. Coupling & Cohesion Assessment
-- Tightly coupled pairs (sync + shared DB)
-- Good decoupling examples (async events, clear API contracts)
-- Suggested improvements (non-prescriptive — note patterns that are known risks)
 
-## 9. Per-Repo Interface Profiles
-One sub-section per repo: exposes / depends on / owns — the raw extracted data from Step 3.
-Link to full overview doc if it exists.
+3-4 bullet points each:
+- **Tightly coupled pairs** — sync deps, shared data stores
+- **Well-decoupled examples** — async events, clear contracts
+- **Recommendations** — patterns that are known risks (non-prescriptive)
+
+## 9. Per-Repo Interface Profiles (Raw Data)
+
+One sub-section per repo. This is the raw extracted data from Step 3 — the source of truth
+that Sections 2–8 are derived from. Keep it factual and structured (not prose).
+
+If the repo has `docs/codebase-overview.md`, link to it and only list cross-repo-relevant fields here.
+Do NOT repeat blast-radius analysis or E2E flows — those live in Sections 5 and 6.
+
+### repo-a
+
+**Exposes:**
+- REST: POST /path — purpose
+- Kafka publishes: topic-name (protobuf type) — trigger
+
+**Depends on:**
+- gRPC: repo-b CreateQuote — SYNC
+- Kafka consumes: other-topic — ASYNC
+
+**Owns:** DynamoDB table-a (deliveries), SQS queue-b
+
+**Tech:** Go, ECS, OAuth2
 
 ## 10. Excluded Repos & Next Steps
-List any repos that failed to load with instructions to fix.
-Suggest running /codebase-overview in each repo for deeper individual docs.
+
+List failed repos with fix instructions. Suggest /codebase-overview for deeper per-repo docs.
 ```
 
 #### 7b — `docs/ecosystem.drawio`
 
 Generate draw.io XML using the same conventions as the `architecture-diagram` skill.
 
+**MANDATORY — Never abbreviate components.** Every Lambda, consumer, worker, service, data store, and queue discovered in Step 3 MUST be a distinct named node. Never write something like `"...13 other Lambdas"` or `"workers (x5)"`. If a repo has 18 Lambdas, create 18 nodes. The goal is a complete, navigable architecture diagram.
+
 Layout zones (top → bottom):
 ```
-Row 0 (y=60):   Frontend / Client apps
+Row 0 (y=60):   Frontend / Client apps / Actors
 Row 1 (y=200):  Public-facing APIs / Gateways
-Row 2 (y=360):  Backend services / Workers
-Row 3 (y=520):  ML services / pipelines
-Row 4 (y=680):  Data stores / Queues / Topics
-Row 5 (y=840):  External services (out of scope)
+Row 2 (y=400):  Backend services / Workers / Lambdas   ← extra height; most components land here
+Row 3 (y=700):  Data stores / Queues / Topics
+Row 4 (y=900):  External services (out of scope)
 ```
 
-Node styles:
-- Each repo = a **swim lane group** containing its owned resources
-- REST edges: solid arrow, label = "REST"
+Swim lane guidance:
+- Each repo = a **swim lane group** (use `swimlane` style) wide enough to hold all its components
+- Stack components in a repo's swim lane in a 3-column grid: `(API / entry points) | (Consumers / workers) | (data stores / queues owned by this repo)`
+- Set `pageWidth` and `pageHeight` to accommodate all nodes — for 30+ nodes use at least `pageWidth=2400 pageHeight=1600`
+- REST edges: solid arrow, label = "REST" or "gRPC"
 - Kafka/event edges: dashed arrow, label = topic name
 - SQS edges: dotted arrow, label = queue name
-- EXTERNAL nodes: grey fill, dashed border
+- EXTERNAL nodes: grey fill, dashed border, placed in a row at the bottom
 
 #### 7c — `docs/ecosystem-diagram.md`
 
-Mermaid graph (renders in GitHub immediately) + instructions for opening the `.drawio` file.
+Produce **two Mermaid diagrams** in this file:
 
-Use `graph LR` for wide systems (many services in a row), `graph TD` for deep pipelines.
+---
 
-Use subgraphs to group repos by domain or team.
+**Diagram 1 — Full Component Diagram**
 
-Annotate critical (P0/P1) edges in red using Mermaid `linkStyle`.
+Use `graph LR` (left-to-right). LR is always preferred for multi-service ecosystems — it spreads horizontally rather than piling nodes vertically.
+
+Inside each service's subgraph, add `direction TB` so its components stack vertically within the swim lane:
+
+```
+subgraph roogo["roogo-service"]
+    direction TB
+    API[...]
+    DelivConsumer[...]
+    ...every Lambda...
+end
+```
+
+**MANDATORY — Never abbreviate or collapse components:**
+- **Wrong:** `OtherLambdas["...13 other Lambdas\n(pickups, rs-sync, telemetry, etc.)"]`
+- **Right:** one node per component, each with its actual name and type, e.g.:
+  ```
+  PickupsConsumer["pickups-consumer\n(Lambda)"]
+  TelemetryWorker["rider-telemetry\n(Lambda)"]
+  RsPartnerSites["rs-partner-sites-consumer\n(Lambda)"]
+  ```
+- Every Lambda, consumer, worker, data store, queue, and external service discovered in Step 3 must appear as a distinct node.
+
+Group shared infrastructure (Kafka, external services not owned by any single repo) in their own subgraph at the far right or bottom of the diagram.
+
+Apply `classDef` styles (api/worker/db/queue/external) and annotate critical (P0/P1) edges in red using `linkStyle`.
+
+---
+
+**Diagram 2 — Critical Path Summary**
+
+A simplified `graph LR` showing only one node per repo/service. Highlight P0/P1 edges. This is the "at a glance" view for quick communication.
+
+Use `linkStyle N stroke:#ff0000,stroke-width:2px` for P0 edges and `stroke:#ff8800` for P1 edges. Add a legend note below the diagram block.
+
+---
+
+Both diagrams go in `docs/ecosystem-diagram.md` with clear `##` headings separating them. Include instructions for opening the `.drawio` file at the top of the file.
 
 #### 7d — Merge behaviour
 
@@ -455,6 +547,9 @@ Produces the full doc but gives extra depth to blast radius, cascade failures, a
 - **Always explain WHY a repo failed**, not just that it did. "Private repo — not authenticated" is useful. "Error" is not.
 - **Prefer existing docs over re-exploration.** If a repo already has `docs/codebase-overview.md`, use it as the primary source for that repo's interface profile. This is much faster and avoids redundant work.
 - **SYNC vs ASYNC distinction is the most important thing to get right** in the dependency graph. A sync dependency that goes down takes its callers with it. An async dependency that goes down creates lag/backlog but callers may keep functioning. Always label edges with this.
+- **Never abbreviate components in diagrams.** Do not write `"...13 other Lambdas"` or `"workers (N)"`. Every Lambda, consumer, worker, data store, and queue discovered in Step 3 must be a distinct named node with its actual name. The diagram is only useful if it is complete.
+- **Use `graph LR` for Mermaid ecosystem diagrams.** Left-to-right layout spreads multi-service systems naturally. Use `direction TB` inside each subgraph so the repo's components stack vertically within their swim lane. Never default to `graph TD` for ecosystem-level diagrams.
+- **Avoid redundancy between doc sections.** The dependency graph (Section 2) shows connections. The contract map (Section 4) shows schemas. The E2E flows (Section 5) show sequences. The per-repo profiles (Section 9) show raw data. Don't repeat the same information in multiple sections — each section has one job.
 - **Don't invent connections.** Only record dependencies that are explicitly visible in code, config, or docs. If a relationship seems likely but isn't confirmed, note it as `<!-- unconfirmed -->`.
 - **Data ownership conflicts are high-risk.** If two repos write to the same store and neither has obvious coordination, flag it prominently in the impact analysis.
 - **Temp dirs:** Always clean up `/tmp/ecosystem-overview/` at the end, even on failure.

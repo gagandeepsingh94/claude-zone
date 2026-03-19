@@ -296,25 +296,41 @@ Use the same grid positions from Step 3. Map each node to an Excalidraw element.
 
 Always generate this regardless of `--format`. Embed in `docs/architecture-diagram.md`.
 
-Use `graph TD` (top-down) or `graph LR` (left-right — better for wide systems with many services).
+**Layout choice:**
+- Use `graph LR` (left-to-right) for services with multiple layers of components — it spreads horizontally and avoids vertical crowding.
+- Use `graph TD` (top-down) only for simple linear pipelines with 5 or fewer rows.
+- When in doubt, default to `graph LR`.
+
+**Inside subgraphs** with many components, add `direction TB` so those components stack vertically within the swim lane:
+```
+subgraph lambdas["Lambda Functions"]
+    direction TB
+    ConsumerA["deliveries-consumer"]
+    ConsumerB["pickups-consumer"]
+    ...
+end
+```
+
+**MANDATORY — Never abbreviate components.** Every Lambda, consumer, worker, data store, and queue must be its own named node. Do not write `"...N other services"` or `"workers (N)"`. If there are 18 Lambdas, show 18 nodes.
 
 ```markdown
 ## Architecture Diagram
 
 > Auto-generated. For the editable source open `docs/architecture.drawio` in [diagrams.net](https://app.diagrams.net) or `docs/architecture.excalidraw` in [Excalidraw](https://excalidraw.com).
 >
-> **draw.io tip:** After opening, press `Ctrl+Shift+H` (Fit Page) then `Extras > Edit Diagram` to adjust.
+> **draw.io tip:** After opening, press `Ctrl+Shift+H` (Fit Page) then `Arrange > Layout` to auto-arrange nodes.
 
 ```mermaid
-graph TD
+graph LR
     ...
 ```
 ```
 
 Group related nodes using Mermaid subgraphs:
 ```
-subgraph "Lambda Functions"
-  ...
+subgraph lambdas["Lambda Functions"]
+    direction TB
+    ...
 end
 ```
 
@@ -381,5 +397,5 @@ When the user says "/architecture-diagram --type infra", focus on cloud resource
 - When `docs/codebase-overview.md` exists, always prefer it as the source of truth over direct codebase exploration — it's faster and already has the right level of abstraction.
 - Do not include every internal function or class — diagrams should show components (services, stores, queues) and their connections, not code internals.
 - Edge labels should be concise: protocol + key detail (e.g. "gRPC", "Kafka: deliveries", "DynamoDB stream", "REST POST /quotes").
-- If the system has more than ~20 nodes, split into multiple diagrams by grouping (e.g. one diagram per domain/bounded context) rather than cramming everything into one.
+- If the system has more than ~30 nodes, produce **two diagrams**: (1) a full component diagram with every node, and (2) a simplified critical-path diagram with one node per logical group. Never collapse real components into placeholder nodes — always show the full inventory in diagram 1.
 - Always note at the top of `architecture-diagram.md`: "Run `/codebase-overview` to regenerate the source docs this diagram is based on."

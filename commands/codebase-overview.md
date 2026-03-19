@@ -28,13 +28,17 @@ DESCRIPTION
   code paths, architecture patterns, data layer, tricky nuances, state machines,
   testing approach, and a key file quick reference.
 
-  If the file already exists, it merges new findings into the existing doc rather
-  than overwriting it. Unchanged sections keep their existing wording.
+  If the file already exists, it uses git to detect what changed since the last
+  update (based on the "Last updated" timestamp in the file) and only re-explores
+  the files that changed — much faster than a full re-index. Falls back to full
+  exploration automatically if git is unavailable or changes are too broad.
+
+  Unchanged sections keep their existing wording.
 
 OPTIONS
   --output <path>             Override output path (default: docs/codebase-overview.md)
   --focus <area>              Give extra depth to one area, e.g. --focus "async pipeline"
-  --fresh                     Skip merge — write a completely new file from scratch
+  --fresh                     Skip merge and git optimisation — full re-index from scratch
   --code-only                 Skip all docs/ files except codebase-overview.md itself;
                               derive everything purely from codebase exploration
   --with-diagram              Also generate docs/architecture.drawio + Mermaid preview
@@ -68,7 +72,81 @@ RELATED SKILLS
 Check whether `docs/codebase-overview.md` (or the `--output` path) already exists.
 
 - **If it does NOT exist** → proceed to Step 2 (fresh generation).
-- **If it DOES exist** → read it in full, note the `Last updated` line at the top, then proceed to Step 2. You will merge rather than replace.
+- **If it DOES exist** → read it in full, extract the `Last updated` date from the first line, then proceed to Step 1.5. You will merge rather than replace.
+- **If `--fresh` was passed** → skip Step 1.5 entirely. Go straight to Step 2.
+
+### Step 1.5 — Git-accelerated change detection
+
+> Skip this step entirely if: `--fresh` was passed, `--code-only` was passed, or no existing file was found.
+
+This step uses git to discover exactly what changed since the last doc update — so exploration can target only what's new instead of re-reading the whole codebase.
+
+**1. Extract the last-updated date**
+
+Parse the `<!-- Last updated: YYYY-MM-DD -->` line from the existing file.
+
+If the line is missing or the date cannot be parsed → **fall back to full exploration** (proceed to Step 2 as normal; log: `"Could not parse Last updated date — falling back to full exploration"`).
+
+**2. Get commits since that date**
+
+Run:
+```bash
+git log --since="LAST_UPDATED_DATE" --oneline
+```
+
+Handle each outcome:
+
+| Outcome | Action |
+|---------|--------|
+| `git` not available | Fall back to full exploration. Log: `"git not available — falling back to full exploration"` |
+| Not a git repo | Fall back to full exploration. Log: `"Not a git repo — falling back to full exploration"` |
+| Command fails for any other reason | Fall back to full exploration. Log the error. |
+| **Zero commits returned** | Doc is current. Skip Steps 2–5. Go straight to Step 6 (merge with no new content) and Step 7 (update the date). Print: `"No commits since LAST_UPDATED_DATE — doc is current. Refreshing date only."` |
+| One or more commits returned | Continue to step 3 below. |
+
+**3. Analyse changed files**
+
+Run:
+```bash
+git log --since="LAST_UPDATED_DATE" --name-only --pretty=format:""
+```
+
+This gives the list of all files changed across those commits. Deduplicate and strip blank lines.
+
+Also capture commit messages for intent:
+```bash
+git log --since="LAST_UPDATED_DATE" --pretty=format:"%s"
+```
+
+**4. Decide: targeted or full exploration**
+
+Count the number of **distinct packages** changed (i.e., unique parent directories of changed files, e.g. `internal/deliveries`, `cmd/lambdas/webhook-call`, `internal/domain`).
+
+| Condition | Mode |
+|-----------|------|
+| 0 files changed | Skip exploration — doc is current (handled above) |
+| 1–20 files changed AND ≤5 distinct packages | **Targeted mode** (Step 4 — targeted variant) |
+| >20 files changed OR >5 distinct packages | **Full exploration** (Step 4 — full variant). Log: `"N files across M packages changed — using full exploration for accuracy"` |
+| Any change to a core hub file (e.g. `go.mod`, the primary domain model file, `main.go` for the web service) | **Full exploration** — changes here may cascade into every section |
+
+**5. Map changed files to affected doc sections**
+
+When in targeted mode, use this mapping to know which sections of the doc need updating. You do not need to re-read files that feed into unaffected sections.
+
+| Changed file pattern | Sections likely affected |
+|----------------------|--------------------------|
+| `internal/domain/*.go` | Domain Models, State Machine Reference, Tricky Parts |
+| `internal/rest/*.go`, `openapi/*.yml` | E2E Flows, Component Map, Key File Quick Reference |
+| `internal/**/repo.go`, DynamoDB/DB config | Data Layer, E2E Flows |
+| `cmd/lambdas/**` | Component Map, Repository Layout, E2E Flows |
+| `internal/config/**` | Data Layer (configuration table) |
+| `cmd/services/**` | Component Map, Repository Layout |
+| New top-level directories | Repository Layout, Component Map |
+| `go.mod` changes | Architecture Patterns (new dependencies) — trigger full exploration |
+
+Record: `affectedSections = [list of sections that need re-reading]`.
+
+The targeted exploration in Step 4 will focus on the changed files and the sections they affect. Sections not in `affectedSections` keep their existing content verbatim.
 
 ### Step 2 — Read existing docs
 
@@ -98,7 +176,13 @@ Before exploring, scan the repo for signals of ML code:
 
 Cross-reference `docs/ml-overview.md` in the companion docs block at the top of the file (if it exists) or note it as a recommended next step.
 
-### Step 4 — Explore the codebase thoroughly
+### Step 4 — Explore the codebase
+
+There are two modes depending on the outcome of Step 1.5.
+
+---
+
+#### Mode A — Full exploration (first run, `--fresh`, `--code-only`, or too many changes)
 
 Use an Explore subagent to cover:
 - Full directory layout and what each top-level folder contains
@@ -111,9 +195,33 @@ Use an Explore subagent to cover:
 - Configuration — key environment variables and their defaults
 - ID / key system — every identifier type, who creates it, where it's used
 
+---
+
+#### Mode B — Targeted exploration (git-accelerated refresh with ≤20 files / ≤5 packages changed)
+
+Use an Explore subagent with a scoped prompt. The prompt must include:
+
+1. **The list of changed files** (from Step 1.5) — explore these files and their immediate neighbours (files in the same package / directory).
+
+2. **The commit messages** (from Step 1.5) — use these to understand intent before reading the files. A commit message like `"Add GetDeliveries endpoint"` tells you exactly which section needs updating before reading a single byte of code.
+
+3. **The affected sections** (from the Step 1.5 mapping) — explicitly name which doc sections are in scope. For example: `"Focus on Domain Models and E2E Flows — the Data Layer and Testing sections are not affected by these changes."`
+
+4. **What to produce** — for each affected section, produce updated content that can be merged into the existing doc. Be explicit: `"For unchanged sections, output nothing — the existing text is already correct."`
+
+The Explore subagent should NOT try to cover the whole codebase in targeted mode. It reads only the changed files and their direct dependencies.
+
+**When targeted exploration is insufficient** (subagent flags that a changed file pulls in broad context, or commit messages suggest a cross-cutting refactor): escalate to full exploration automatically. Log: `"Targeted exploration insufficient — escalating to full exploration"`.
+
+---
+
+After Step 4 completes (in either mode), proceed to Step 5.
+
 ### Step 5 — Generate the new content
 
-Produce content covering all required sections (see below). Always use concrete `file.go: FunctionName()` references; engineers should be able to navigate directly to the code.
+**Full exploration mode**: Produce content covering all required sections (see below). Always use concrete `file.go: FunctionName()` references; engineers should be able to navigate directly to the code.
+
+**Targeted exploration mode**: Produce updated content **only for the sections listed in `affectedSections`** (from Step 1.5). For all other sections, carry forward the existing text verbatim — do not regenerate them and do not mark them with `<!-- verify -->` unless you have a specific reason to doubt them. Targeted updates should feel like a surgical diff, not a rewrite.
 
 ### Step 6 — Merge with existing file (if one exists)
 
@@ -191,11 +299,16 @@ If `--with-diagram` is passed without a format value, default to draw.io only.
 ### Example 1: First-time generation
 When the user says "/codebase-overview" and no overview file exists, explore the codebase and create `docs/codebase-overview.md` with today's date in the `Last updated` line.
 
-### Example 2: Refreshing an existing doc
-When the user says "/codebase-overview" and `docs/codebase-overview.md` already exists, read the existing file, explore the codebase for changes since the last update, merge the results, and update the `Last updated` date.
+### Example 2: Refreshing an existing doc (git-accelerated)
+When the user says "/codebase-overview" and `docs/codebase-overview.md` already exists:
+1. Extract the `Last updated` date from the file header.
+2. Run `git log --since="<date>" --oneline` to find commits since then.
+3. **If no commits**: print `"No commits since <date> — doc is current. Refreshing date only."` Update only the `Last updated` date and write the file. Done.
+4. **If few commits (≤20 files, ≤5 packages)**: run targeted exploration on only the changed files. Use commit messages to understand intent. Update only the affected doc sections. Merge and write.
+5. **If many commits or git unavailable**: fall back to full exploration. Log why. Merge and write.
 
-### Example 3: Force fresh
-When the user says "/codebase-overview --fresh", ignore any existing file and write a completely new one.
+### Example 3: Force fresh (skip git optimisation)
+When the user says "/codebase-overview --fresh", skip Step 1.5 entirely. Ignore the existing file and run full codebase exploration from scratch.
 
 ### Example 4: Custom output path
 When the user says "/codebase-overview --output docs/architecture.md", use that path for both the existence check and the output.
@@ -209,19 +322,22 @@ When the user says "/codebase-overview --code-only", skip reading any files in `
 ### Example 7: Code-only fresh start
 When the user says "/codebase-overview --code-only --fresh", ignore all existing docs AND skip the merge — write a completely new file derived purely from the codebase.
 
-### Example 6: Overview + diagram in one shot (draw.io)
+### Example 8: Overview + diagram in one shot (draw.io)
 When the user says "/codebase-overview --with-diagram", generate the full `docs/codebase-overview.md` then immediately generate `docs/architecture.drawio` and `docs/architecture-diagram.md` using the freshly written overview as input. No second codebase exploration needed.
 
-### Example 7: Overview + both diagram formats
+### Example 9: Overview + both diagram formats
 When the user says "/codebase-overview --with-diagram=both", generate the overview then generate `docs/architecture.drawio`, `docs/architecture.excalidraw`, and `docs/architecture-diagram.md`.
 
 ## Notes
 
 - The `<!-- Last updated: YYYY-MM-DD -->` line must always be the first line of the output file.
-- The ID/Key System section is the most valuable section for new engineers; invest extra effort here.
+- **Git acceleration is the default for refreshes.** It should feel fast — targeted mode reads only the changed files, not the whole codebase. All fallback paths lead to full exploration automatically; the user never needs to know which mode ran.
+- **Always log the mode used** (targeted / full / date-only) so the user knows what happened.
+- **The ID/Key System section is the most valuable section for new engineers**; invest extra effort here.
 - E2E flow traces must include async continuations (e.g. "HTTP 201 returned immediately; async pipeline continues via DynamoDB stream → …").
 - Tricky Parts should explain the *why*, not just describe *what* the code does.
 - The document should be useful to someone who has never seen the codebase AND to someone debugging a production incident at 2 AM.
 - If `docs/` does not exist, create it.
 - Use GitHub-Flavored Markdown with ASCII diagrams — no external diagram dependencies.
 - When merging, never silently delete existing nuances/gotchas — they were written for a reason. Use `<!-- verify -->` if unsure.
+- In targeted mode, do NOT regenerate sections that are not in `affectedSections`. Carry them forward verbatim. A targeted refresh that rewrites everything defeats the purpose.
