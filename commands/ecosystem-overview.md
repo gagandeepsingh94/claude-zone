@@ -1,5 +1,7 @@
 ---
-description: Analyse multiple repos (local paths or GitHub URLs) to map how they interact — dependency graph, cross-repo E2E flows, impact analysis, shared infrastructure, and data ownership — for any mix of backend, frontend, and ML services.
+name: ecosystem-overview
+description: Analyse multiple repos to map how they interact — dependency graph, cross-repo E2E flows, impact analysis, shared infrastructure, and data ownership. Use when understanding a multi-service system, planning cross-service changes, investigating cross-repo incidents, or assessing blast radius.
+allowed-tools: Read Glob Grep Bash Write Edit
 ---
 
 # Command: Ecosystem Overview

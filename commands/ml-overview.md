@@ -1,5 +1,7 @@
 ---
-description: Deeply explore an ML codebase and generate (or refresh) a comprehensive ml-overview.md covering model types, training pipelines, data sources, feature engineering, evaluation, serving, and monitoring.
+name: ml-overview
+description: Deeply explore ML components and generate docs/ml-overview.md covering models, training pipelines, data sources, feature engineering, evaluation, serving, and monitoring. Use when a repo contains ML code — torch, tensorflow, sklearn, training scripts, notebooks, mlflow, wandb, or similar.
+allowed-tools: Read Glob Grep Bash Write Edit
 ---
 
 # Command: ML Overview

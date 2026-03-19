@@ -1,5 +1,7 @@
 ---
-description: Deeply explore a service codebase and generate (or refresh) a comprehensive codebase-overview.md covering architecture, E2E flows with code paths, and non-obvious nuances.
+name: codebase-overview
+description: Deeply explore a service codebase and generate docs/codebase-index.json and docs/codebase-overview.md. Use when onboarding to a new repo, keeping architecture docs current, preparing for a refactor, or generating docs before a production incident investigation.
+allowed-tools: Read Glob Grep Bash Write Edit
 ---
 
 # Command: Codebase Overview

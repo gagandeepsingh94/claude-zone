@@ -1,5 +1,7 @@
 ---
-description: Analyse the codebase (or existing overview docs) and generate an architecture diagram as a draw.io XML file, Excalidraw JSON file, and an inline Mermaid preview — all in one pass.
+name: architecture-diagram
+description: Generate architecture diagrams (draw.io, Excalidraw, Mermaid) from the current codebase or existing overview docs. Use when asked to visualise system architecture, diagram a specific flow or infrastructure view, or update diagrams after code changes.
+allowed-tools: Read Glob Bash Write Edit
 ---
 
 # Command: Architecture Diagram
