@@ -1,14 +1,37 @@
 # Atlas
 
-> Codebase intelligence for Claude Code — orientation for new engineers, living reference for veterans.
+> Codebase intelligence for AI agents — orientation for new engineers, living reference for veterans.
 
-Atlas gives Claude a persistent, structured understanding of your codebase. Instead of re-reading source files from scratch every time, Claude builds a machine-readable index once and refreshes only what changed. The result: faster, more accurate answers about architecture, flows, and impact — whether you just joined the team or have been shipping for years.
+Atlas gives AI agents a persistent, structured understanding of your codebase. Instead of re-reading source files from scratch every time, the agent builds a machine-readable index once and refreshes only what changed. The result: faster, more accurate answers about architecture, flows, and impact — whether you just joined the team or have been shipping for years.
+
+Atlas ships with a **Claude Code integration** today. The core logic lives in agent-agnostic specs under `spec/` — see [`docs/agent-agnostic-guide.md`](docs/agent-agnostic-guide.md) to add support for Cursor, Copilot, Windsurf, or any other agent.
+
+---
+
+## Motivation
+
+AI agents are powerful but stateless. Every new session, the agent re-reads your codebase from scratch — exploring files, inferring structure, rebuilding context it already had yesterday. On a large repo that's expensive, slow, and inconsistent: two runs over the same code can produce meaningfully different answers.
+
+Atlas is built around a different idea: **pay the exploration cost once, answer cheaply forever.**
+
+The first run is thorough — Atlas explores the codebase, builds a machine-readable index, and writes structured docs. Every subsequent run is incremental: git tells Atlas what changed, and only the affected sections are regenerated. The rest is carried forward verbatim.
+
+More precisely, Atlas introduces **reproducible structure** into AI-generated documentation:
+
+- **The exploration path is rule-governed.** The agent reads specific files in a specific order, not whatever it feels like exploring.
+- **The refresh logic is deterministic.** Changed ≤20 files across ≤5 packages → targeted refresh. Hub file changed → full re-index. Same inputs, same decision, every time.
+- **The output schema is fixed.** Docs are always written into the same 11 sections, in the same format, so diffs are meaningful and targeted updates are possible.
+- **The agent's non-determinism is contained.** Claude fills in the prose, but it fills it into a deterministic container — the structure doesn't drift between runs.
+
+This isn't "deterministic AI" — the words Claude writes will vary. But the *workflow* behaves like a build system: incremental, reproducible, and scoped to what actually changed.
+
+The `ask-atlas` command takes this further. Once docs exist, questions about the codebase are answered from the pre-built docs alone — no re-traversal, no re-inference, minimal tokens. The index is the cache; the docs are the materialized view.
 
 ---
 
 ## What it does
 
-Atlas is a two-layer system of **commands** and **skills** for Claude Code.
+Atlas is a two-layer system of **commands** and **skills**. The Claude Code integration ships today; other agents can be added by following the guide in [`docs/agent-agnostic-guide.md`](docs/agent-agnostic-guide.md).
 
 **Commands** are predefined slash commands you invoke directly. Each command orchestrates a high-level workflow:
 
@@ -67,24 +90,24 @@ This means a single-file change to your API handler regenerates the "API & Endpo
 ### Commands vs skills
 
 ```
-commands/codebase-overview.md          ← you type /codebase-overview
-  └─ skills/detect-git-changes/        ← Claude activates automatically
-  └─ skills/index-codebase/            ← Claude activates automatically
-  └─ skills/write-overview-doc/        ← Claude activates automatically
-  └─ skills/generate-diagram/          ← Claude activates (if --with-diagram)
+integrations/claude-code/commands/codebase-overview.md    ← /codebase-overview
+  └─ skills/detect-git-changes/        ← activates automatically
+  └─ skills/index-codebase/            ← activates automatically
+  └─ skills/write-overview-doc/        ← activates automatically
+  └─ skills/generate-diagram/          ← activates (if --with-diagram)
 
-commands/ask-atlas.md                  ← you type /ask-atlas
+integrations/claude-code/commands/ask-atlas.md             ← /ask-atlas
   └─ skills/detect-git-changes/        ← staleness check
   └─ commands/codebase-overview.md     ← delegates to if docs missing or --fresh
 
-commands/architecture-diagram.md       ← you type /architecture-diagram
-  └─ skills/generate-diagram/          ← Claude activates automatically
+integrations/claude-code/commands/architecture-diagram.md  ← /architecture-diagram
+  └─ skills/generate-diagram/          ← activates automatically
 
-commands/ecosystem-overview.md         ← you type /ecosystem-overview
-  └─ skills/explore-repo-interface/    ← Claude activates per repo
-  └─ skills/generate-diagram/          ← Claude activates automatically
+integrations/claude-code/commands/ecosystem-overview.md    ← /ecosystem-overview
+  └─ skills/explore-repo-interface/    ← activates per repo
+  └─ skills/generate-diagram/          ← activates automatically
 
-commands/ml-overview.md                ← you type /ml-overview
+integrations/claude-code/commands/ml-overview.md           ← /ml-overview
   (uses index fast-path if available)
 ```
 
@@ -94,23 +117,28 @@ commands/ml-overview.md                ← you type /ml-overview
 
 ```
 atlas/
-├── commands/
-│   ├── codebase-overview.md      # /codebase-overview command
-│   ├── ask-atlas.md              # /ask-atlas command
-│   ├── architecture-diagram.md   # /architecture-diagram command
-│   ├── ecosystem-overview.md     # /ecosystem-overview command
-│   └── ml-overview.md            # /ml-overview command
-└── skills/
-    ├── index-codebase/
-    │   └── SKILL.md
-    ├── detect-git-changes/
-    │   └── SKILL.md
-    ├── write-overview-doc/
-    │   └── SKILL.md
-    ├── generate-diagram/
-    │   └── SKILL.md
-    └── explore-repo-interface/
-        └── SKILL.md
+├── spec/                              # Agent-agnostic logic (source of truth)
+│   ├── commands/
+│   │   ├── codebase-overview.md
+│   │   ├── ask-atlas.md
+│   │   ├── architecture-diagram.md
+│   │   ├── ecosystem-overview.md
+│   │   └── ml-overview.md
+│   └── skills/
+│       ├── detect-git-changes.md
+│       ├── index-codebase.md
+│       ├── write-overview-doc.md
+│       ├── generate-diagram.md
+│       └── explore-repo-interface.md
+├── integrations/
+│   └── claude-code/                   # Claude Code wrapper (what gets installed)
+│       ├── commands/                  # Spec + Claude frontmatter
+│       ├── skills/                    # Spec + Claude frontmatter
+│       └── install.sh
+├── docs/
+│   └── agent-agnostic-guide.md        # How to add a new agent integration
+├── install.sh                         # Delegates to integrations/claude-code by default
+└── README.md
 ```
 
 ---
@@ -131,7 +159,7 @@ cd atlas
 ./install.sh
 ```
 
-This copies all commands and skills into `~/.claude/` and prints a confirmation:
+Installs the Claude Code integration by default. Prints a confirmation:
 
 ```
 Atlas installed successfully.
@@ -164,6 +192,10 @@ Then commit `.claude/` so the whole team gets Atlas automatically:
 git add .claude/
 git commit -m "Add Atlas commands and skills"
 ```
+
+### Other agents
+
+Atlas ships with a Claude Code integration today. To add support for another agent (Cursor, Copilot, Windsurf, etc.), see [`docs/agent-agnostic-guide.md`](docs/agent-agnostic-guide.md). The core logic lives in `spec/` and requires only a thin wrapper to work with any agent.
 
 ---
 
