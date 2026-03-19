@@ -16,6 +16,7 @@ Orchestrates a full or targeted exploration of the current service codebase, pro
 | 3 | `index-codebase` | Build or update the structured codebase index |
 | 4 | `write-overview-doc` | Write the human-readable overview from the index |
 | 5 | `generate-diagram` | *(only with `--with-diagram`)* Produce architecture diagram files |
+| 6 | `ml-overview` command | Run ML deep-dive when ML detected or --with-ml |
 
 ---
 
@@ -49,6 +50,8 @@ OPTIONS
   --with-diagram              Also generate docs/architecture.drawio + Mermaid preview
   --with-diagram=excalidraw   Also generate docs/architecture.excalidraw + Mermaid preview
   --with-diagram=both         Generate draw.io + Excalidraw + Mermaid preview
+  --with-ml               Also run /ml-overview (forced, even if no ML detected)
+  --no-ml                 Skip ml-overview even if ML artifacts are detected
   --help, -h                  Show this help and exit
 
 OUTPUT FILES (default)
@@ -57,6 +60,7 @@ OUTPUT FILES (default)
   docs/architecture.drawio        (only with --with-diagram)
   docs/architecture-diagram.md    (only with --with-diagram)
   docs/architecture.excalidraw    (only with --with-diagram=excalidraw or =both)
+  docs/ml-overview.md     (when ML detected or --with-ml, unless --no-ml)
 
 RELATED SKILLS
   /ml-overview            — ML-specific deep dive (models, training, data, serving)
@@ -142,7 +146,7 @@ After the diagram is written, add a cross-reference to `docs/architecture-diagra
 
 ---
 
-## Step 6 — Detect ML artefacts *(informational only)*
+## Step 6 — ML artefact detection and ml-overview
 
 Scan the repo for ML signals:
 - Model files: `*.pt`, `*.pth`, `*.ckpt`, `*.pb`, `*.h5`, `*.onnx`, `*.pkl`, `*.safetensors`
@@ -151,13 +155,18 @@ Scan the repo for ML signals:
 - Experiment tracking: `mlflow`, `wandb`, `comet_ml`, `neptune`
 - Notebooks: `*.ipynb`
 
-If ML artefacts are found, add a callout near the top of the overview doc:
+**Decision logic:**
 
-```
-> **ML components detected.** This repo contains machine learning code.
-> Run `/ml-overview` to generate `docs/ml-overview.md` with full coverage of
-> model types, training pipelines, data sources, experiment tracking, and serving.
-```
+| Condition | Action |
+|-----------|--------|
+| `--no-ml` passed | Skip this step entirely. |
+| ML artifacts found OR `--with-ml` passed | Follow all steps in the `ml-overview` command. Pass through `--output`, `--focus`, `--fresh` if provided. |
+| No ML artifacts and no `--with-ml` | Skip. |
+
+When ml-overview runs:
+- It will read `docs/codebase-index.json` (just written in Step 3) to fast-path artifact detection — no redundant scan.
+- After it completes, add a cross-reference line near the top of `docs/codebase-overview.md`:
+  `> **ML overview:** see [docs/ml-overview.md](docs/ml-overview.md)`
 
 ---
 
