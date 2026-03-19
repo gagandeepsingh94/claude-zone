@@ -15,6 +15,7 @@ Atlas is a two-layer system of **commands** and **skills** for Claude Code.
 | Command | What it produces |
 |---------|-----------------|
 | `/codebase-overview` | `docs/codebase-index.json` + `docs/codebase-overview.md` — full architecture reference with git-accelerated refresh |
+| `/ask-atlas` | Instant Q&A from pre-built docs — no codebase re-traversal, minimal token usage |
 | `/architecture-diagram` | `docs/architecture.drawio` + `docs/architecture-diagram.md` — editable draw.io diagram and Mermaid preview |
 | `/ml-overview` | `docs/ml-overview.md` — models, training pipelines, data sources, experiment tracking, serving, monitoring |
 | `/ecosystem-overview` | `docs/ecosystem-overview.md` + diagrams — dependency graph and impact analysis across multiple repos |
@@ -72,6 +73,10 @@ commands/codebase-overview.md          ← you type /codebase-overview
   └─ skills/write-overview-doc/        ← Claude activates automatically
   └─ skills/generate-diagram/          ← Claude activates (if --with-diagram)
 
+commands/ask-atlas.md                  ← you type /ask-atlas
+  └─ skills/detect-git-changes/        ← staleness check
+  └─ commands/codebase-overview.md     ← delegates to if docs missing or --fresh
+
 commands/architecture-diagram.md       ← you type /architecture-diagram
   └─ skills/generate-diagram/          ← Claude activates automatically
 
@@ -91,6 +96,7 @@ commands/ml-overview.md                ← you type /ml-overview
 atlas/
 ├── commands/
 │   ├── codebase-overview.md      # /codebase-overview command
+│   ├── ask-atlas.md              # /ask-atlas command
 │   ├── architecture-diagram.md   # /architecture-diagram command
 │   ├── ecosystem-overview.md     # /ecosystem-overview command
 │   └── ml-overview.md            # /ml-overview command
@@ -129,6 +135,7 @@ After copying, verify:
 ~/.claude/
 ├── commands/
 │   ├── codebase-overview.md
+│   ├── ask-atlas.md
 │   ├── architecture-diagram.md
 │   ├── ecosystem-overview.md
 │   └── ml-overview.md
@@ -188,6 +195,28 @@ Produces `docs/codebase-index.json` and `docs/codebase-overview.md`. On a large 
 
 Same command. Atlas detects what changed via git and runs in targeted mode — only affected sections are rewritten.
 
+### Ask questions from pre-built docs
+
+Once docs exist, skip the indexing step entirely:
+
+```
+/ask-atlas "how does the delivery state machine work?"
+```
+
+Loads `docs/codebase-overview.md` (and `ml-overview.md`, `architecture-diagram.md` if present) and answers immediately — no codebase traversal. Warns if docs are stale.
+
+```
+/ask-atlas --files src/auth/jwt.py "how is the JWT validated?"
+```
+
+Adds a specific source file to the context for a more detailed answer.
+
+```
+/ask-atlas --fresh
+```
+
+Regenerates all docs first, then enters chat mode.
+
 ### Generate an architecture diagram
 
 ```
@@ -233,6 +262,19 @@ Produces a dependency graph, impact analysis, cross-repo E2E flows, and editable
 ---
 
 ## Command reference
+
+### `/ask-atlas`
+
+```
+USAGE
+  /ask-atlas [question] [options]
+
+OPTIONS
+  --files <path1,path2,...>   Include additional source files in context
+  --fresh                     Regenerate all docs before answering
+  --no-ml                     Skip ml-overview.md even if present
+  --help, -h                  Show help
+```
 
 ### `/codebase-overview`
 
@@ -296,6 +338,7 @@ OPTIONS
 
 ## Tips
 
+- **Use `/ask-atlas` for quick questions.** Once docs exist, it's far cheaper than re-running `/codebase-overview` — it reads the pre-built docs and answers immediately without touching source files.
 - **Commit `docs/codebase-index.json`.** It's the long-term state that makes targeted refresh possible. Without it, every run is a full re-index.
 - **Run `/codebase-overview` before `/architecture-diagram`.** The diagram command is significantly faster and more accurate when the index already exists.
 - **For hybrid ML repos**, run both `/codebase-overview` and `/ml-overview`. The codebase overview covers service architecture; the ML overview covers model lifecycle.
