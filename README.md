@@ -120,13 +120,13 @@ atlas/
 ### Global install (available in every project)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/your-username/atlas/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/gagandeepsingh94/atlas/main/install.sh | bash
 ```
 
 Or clone and run locally:
 
 ```bash
-git clone https://github.com/your-username/atlas.git
+git clone https://github.com/gagandeepsingh94/atlas.git
 cd atlas
 ./install.sh
 ```
