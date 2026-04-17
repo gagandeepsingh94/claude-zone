@@ -27,7 +27,11 @@ if [ ! -f "$INTEGRATION_SCRIPT" ]; then
     [ -d "$d" ] && echo "  $(basename "$d")"
   done
   echo ""
-  echo "Usage: ./install.sh [--integration=<name>] [--per-repo] [--repo=<path>]"
+  echo "Usage: ./install.sh [--integration=<name>] [--per-repo] [--repo=<path>] [--full]"
+  echo ""
+  echo "  --skill      Install as a single self-contained atlas skill (default)"
+  echo "  --full       Install 5 commands + 5 individual skills (classic mode)"
+  echo "  --per-repo   Install into .claude/ instead of ~/.claude/"
   exit 1
 fi
 
